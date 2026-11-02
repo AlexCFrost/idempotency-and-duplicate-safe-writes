@@ -84,6 +84,29 @@ Implement:
 
 Do not call external queue/provider inside database transaction.
 
+### Implemented Design Decisions
+
+1. **Database uniqueness owns duplicate detection.** The application also checks the
+   idempotency record for replay and conflict responses, but `idempotency_keys`
+   has a primary key on `(tenant_id, operation, key)`. PostgreSQL is therefore the
+   final authority when simultaneous requests arrive.
+2. **Request contents are canonicalized.** The handler hashes only the cleaned
+   incident fields (`title`, `severity`, and `serviceId`), after sorting nested
+   object keys and serializing JSON deterministically. Object property order does
+   not change the hash.
+3. **Key records expire after 24 hours.** Exercise records use an expiry of
+   `now() + interval '24 hours'`. After expiry, the key may be reused as a new
+   logical incident; expired records are not replayed.
+4. **The business write is atomic.** One database transaction claims the key,
+   inserts the incident, inserts its durable paging job, and marks the key
+   completed. A transaction failure removes all local writes.
+5. **Replay and side-effect metadata are bounded.** Completed responses are stored
+   in `response_body`, and a paging job is retained with a stable incident-derived
+   UUID. The exercise contract intentionally stores only the incident response.
+   A production system should avoid secrets or unrestricted data in replay
+   bodies, set an appropriate response/body size limit, and encrypt or minimize
+   sensitive replay data.
+
 ### README Decisions
 
 Explain:
